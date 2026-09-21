@@ -1,0 +1,45 @@
+name: jterm
+description: "JTerm - A powerful SSH/terminal client for Linux, a full-featured MobaXterm alternative. Core logic is pure Dart for future HarmonyOS porting."
+publish_to: "none"
+version: 0.1.0
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ---- State management ----
+  provider: ^6.1.2
+
+  # ---- Terminal emulation (VS Code style terminal, pure Dart core) ----
+  xterm: ^4.0.0
+
+  # ---- SSH2 protocol implementation (pure Dart) ----
+  dartssh2: ^4.1.0
+
+  # ---- Local PTY for shell sessions ----
+  flutter_pty: ^0.4.2
+
+  # ---- Desktop window control ----
+  window_manager: ^0.4.3
+
+  # ---- Storage & paths ----
+  path_provider: ^2.1.4
+  shared_preferences: ^2.3.2
+
+  # ---- Crypto for the credential vault (AES-256-GCM + PBKDF2) ----
+  cryptography: ^2.7.0
+
+  # ---- Desktop file pickers / links ----
+  file_selector: ^1.0.3
+  url_launcher: ^6.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
