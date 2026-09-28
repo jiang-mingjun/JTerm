@@ -11,14 +11,25 @@ permissions:
 
 jobs:
   deb:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Linux build dependencies
         run: |
+          # Runner images ship Microsoft/Google apt lists. If one of those
+          # mirrors errors, apt-get update exits 100 and the deb is never built.
+          shopt -s nullglob
+          for f in /etc/apt/sources.list.d/*; do
+            if ! grep -q 'ubuntu.com' "$f"; then
+              echo "dropping $f"
+              sudo rm -f "$f"
+            fi
+          done
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-dev
+          sudo apt-get install -y --no-install-recommends \
+            clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-dev
 
       - uses: subosito/flutter-action@v2
         with:
