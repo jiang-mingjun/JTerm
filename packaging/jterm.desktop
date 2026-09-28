@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=JTerm
+Comment=SSH 与终端客户端
+Exec=jterm
+Icon=dev.jterm.jterm
+Terminal=false
+Type=Application
+Categories=Network;TerminalEmulator;
+StartupWMClass=dev.jterm.jterm
+Keywords=ssh;sftp;terminal;serial;

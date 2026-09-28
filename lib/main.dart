@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
@@ -17,6 +19,7 @@ Future<void> main() async {
     titleBarStyle: TitleBarStyle.normal,
   );
   await windowManager.waitUntilReadyToShow(options, () async {
+    await _setWindowIcon();
     await windowManager.show();
     await windowManager.focus();
   });
@@ -32,4 +35,16 @@ Future<void> main() async {
       child: const JTermApp(),
     ),
   );
+}
+
+/// Prefer the installed hicolor icon, then the copy shipped beside the binary.
+Future<void> _setWindowIcon() async {
+  final beside = '${File(Platform.resolvedExecutable).parent.path}/jterm.png';
+  const installed = '/usr/share/icons/hicolor/256x256/apps/dev.jterm.jterm.png';
+  for (final path in [beside, installed]) {
+    if (File(path).existsSync()) {
+      await windowManager.setIcon(path);
+      return;
+    }
+  }
 }

@@ -94,6 +94,13 @@ set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}/lib")
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 
+# Window icon, resolved next to the executable at runtime.
+set(JTERM_ICON "${CMAKE_CURRENT_SOURCE_DIR}/../packaging/icons/hicolor/256x256/apps/dev.jterm.jterm.png")
+if(EXISTS "${JTERM_ICON}")
+  install(FILES "${JTERM_ICON}" DESTINATION "${CMAKE_INSTALL_PREFIX}" RENAME "jterm.png"
+    COMPONENT Runtime)
+endif()
+
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   COMPONENT Runtime)
 

@@ -58,6 +58,10 @@ flutter run -d linux
 # 发布构建
 flutter build linux --release
 # 产物: build/linux/x64/release/bundle/jterm
+
+# 打 deb（图标、桌面入口、/usr/bin/jterm）
+scripts/package-deb.sh
+# 产物: packaging/out/jterm_<version>_amd64.deb
 ```
 
 ### 无 root 环境构建（conda-forge 工具链）
@@ -83,6 +87,17 @@ scripts/build-linux.sh --release
 脚本 `scripts/build-linux.sh` 解决的坑位：conda 的 pkg-config/ld 不搜系统路径、
 间接依赖符号版本冲突（conda 的 pcre2 必须优先于系统的）、flutter 偶发不建
 `build/native_assets/linux` 目录等，详见脚本内注释。
+
+### GitHub 发行版
+
+推送形如 `v0.2.0` 的标签后，[Release 工作流](.github/workflows/release.yml) 会在 Ubuntu 上构建并发布 `.deb`，可在仓库的 Releases 页面直接下载。版本号取自标签（去掉前缀 `v`）。
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+本地安装：`sudo apt install ./packaging/out/jterm_0.2.0_amd64.deb`。
 
 ## 架构
 
