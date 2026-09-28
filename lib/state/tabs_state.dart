@@ -6,12 +6,16 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../core/models/macro.dart';
 import '../core/models/session_profile.dart';
 import '../core/terminal/local_pty_session.dart';
+import '../core/terminal/serial_terminal_session.dart';
 import '../core/terminal/ssh_terminal_session.dart';
 import '../core/terminal/terminal_session.dart';
 import '../core/terminal/telnet_terminal_session.dart';
 import 'app_state.dart';
+
+enum PaneSplit { none, horizontal, vertical }
 
 class TabEntry {
   TabEntry({
@@ -21,6 +25,7 @@ class TabEntry {
   });
 
   final String id;
+  final GlobalKey pageKey = GlobalKey();
   final TerminalSessionBase session;
   String title;
   StreamSubscription? _eventSub;
@@ -48,6 +53,13 @@ class TabsState extends ChangeNotifier {
 
   bool showSftpPanel = true;
 
+  PaneSplit split = PaneSplit.none;
+  String? splitTabId;
+
+  bool recordingMacro = false;
+  final List<MacroStep> _recorded = [];
+  String _recordLine = '';
+
   TabEntry open(SessionProfile profile) {
     // Reconnect if the same profile is already open in a tab.
     final existing =
@@ -61,18 +73,21 @@ class TabsState extends ChangeNotifier {
       return existing;
     }
 
+    final maxLines = app.settings.scrollbackLines.clamp(1000, 200000);
     final TerminalSessionBase session;
     switch (profile.type) {
       case SessionType.ssh:
-        session = SshTerminalSession(profile, app.services);
+        session = SshTerminalSession(profile, app.services, maxLines: maxLines);
       case SessionType.localShell:
-        session = LocalPtySession(profile);
+        session = LocalPtySession(profile, maxLines: maxLines);
       case SessionType.telnet:
-        session = TelnetTerminalSession(profile);
+        session = TelnetTerminalSession(profile, maxLines: maxLines);
       case SessionType.serial:
-        throw UnsupportedError(
-            'Serial sessions require the libserialport plugin (planned)');
+        session = SerialTerminalSession(profile, maxLines: maxLines);
     }
+    session.loggingEnabled = profile.logSession || app.settings.logSessions;
+    session.logDirectory = app.services.logDirectory;
+    session.onUserInput = _recordInput;
 
     final tab = TabEntry(
       id: 'tab-${_seq++}',
@@ -81,7 +96,7 @@ class TabsState extends ChangeNotifier {
     );
 
     tab._eventSub = session.events.listen((e) {
-      if (e is SessionStatusChanged) {
+      if (e is SessionStatusChanged || e is SessionCwdChanged) {
         notifyListeners();
       } else if (e is SessionTitleChanged) {
         tab.title = e.title;
@@ -109,7 +124,47 @@ class TabsState extends ChangeNotifier {
   }
 
   void activate(String id) {
+    if (split != PaneSplit.none && id == splitTabId && id != activeId) {
+      splitTabId = activeId;
+    }
     activeId = id;
+    notifyListeners();
+  }
+
+  void duplicate(String id) {
+    final tab = tabs.where((t) => t.id == id).firstOrNull;
+    if (tab == null) return;
+    final clone = tab.session.profile.copyWith();
+    clone.id = '${clone.id}#${DateTime.now().millisecondsSinceEpoch}';
+    open(clone);
+  }
+
+  void rename(String id, String title) {
+    final tab = tabs.where((t) => t.id == id).firstOrNull;
+    if (tab == null || title.trim().isEmpty) return;
+    tab.title = title.trim();
+    notifyListeners();
+  }
+
+  void setSplit(PaneSplit mode, String tabId) {
+    if (mode == PaneSplit.none) {
+      split = PaneSplit.none;
+      splitTabId = null;
+      notifyListeners();
+      return;
+    }
+    if (tabs.length < 2 && tabId == activeId) {
+      split = mode;
+      splitTabId = null;
+      notifyListeners();
+      return;
+    }
+    split = mode;
+    if (tabId != activeId) {
+      splitTabId = tabId;
+    } else {
+      splitTabId = tabs.where((t) => t.id != activeId).firstOrNull?.id;
+    }
     notifyListeners();
   }
 
@@ -185,6 +240,43 @@ class TabsState extends ChangeNotifier {
   void toggleSftpPanel() {
     showSftpPanel = !showSftpPanel;
     notifyListeners();
+  }
+
+  void beginRecording() {
+    _recorded.clear();
+    _recordLine = '';
+    recordingMacro = true;
+    notifyListeners();
+  }
+
+  List<MacroStep> stopRecording() {
+    recordingMacro = false;
+    if (_recordLine.isNotEmpty) {
+      _recorded.add(MacroStep(command: _recordLine));
+      _recordLine = '';
+    }
+    final steps = List<MacroStep>.from(_recorded);
+    _recorded.clear();
+    notifyListeners();
+    return steps;
+  }
+
+  void _recordInput(String data) {
+    if (!recordingMacro) return;
+    for (final rune in data.runes) {
+      if (rune == 13 || rune == 10) {
+        if (_recordLine.isNotEmpty) {
+          _recorded.add(MacroStep(command: _recordLine));
+          _recordLine = '';
+        }
+      } else if (rune == 127 || rune == 8) {
+        if (_recordLine.isNotEmpty) {
+          _recordLine = _recordLine.substring(0, _recordLine.length - 1);
+        }
+      } else if (rune >= 32) {
+        _recordLine += String.fromCharCode(rune);
+      }
+    }
   }
 
   @override

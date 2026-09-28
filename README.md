@@ -12,18 +12,32 @@ Linux 上的全功能 SSH 客户端，全面对标 MobaXterm。基于 Flutter �
 | 会话管理器（分组/书签） | 左侧会话面板，`分组/子分组` 层级、复制/编辑/删除 | ✅ |
 | 密码管理 | AES-256-GCM 凭据保险库，主密码 + PBKDF2(150k) 派生 | ✅ |
 | SSH 认证 | 密码 / 私钥（OpenSSH PEM、ed25519、RSA…），口令保护 | ✅ |
-| 跳板机 (SSH gateway) | 会话级跳板配置，SSH channel 级联 | ✅ |
-| SFTP 浏览器（左侧自动弹出） | 左侧 SFTP 面板随 SSH 会话自动打开，浏览/上传/下载/重命名/删除/新建目录/Chmod，带进度条 | ✅ |
+| 跳板机 (SSH gateway) | 会话级跳板配置，支持多级级联，循环引用会拒绝 | ✅ |
+| SSH Agent | 用本机 `SSH_AUTH_SOCK` 登录，并可把 agent 转发到远端 | ✅ |
+| 出站代理 | SOCKS5 / HTTP CONNECT，可选代理认证 | ✅ |
+| keyboard-interactive | OTP / PAM 等多提示认证对话框 | ✅ |
+| SFTP 浏览器（左侧自动弹出） | 左侧 SFTP 面板随 SSH 会话自动打开，浏览/上传/下载/重命名/删除/新建目录/Chmod/编辑，带进度条 | ✅ |
+| SFTP 跟随终端目录 | 注入 `PROMPT_COMMAND` 上报 OSC 7，浏览器跟着当前目录走 | ✅ |
+| ZMODEM | 远端 `sz` 下载、`rz` 上传 | ✅ |
 | 端口转发 -L/-R/-D | 会话内嵌转发规则编辑器 + 转发管理对话框，动态转发为内置 SOCKS5 | ✅ |
 | X11 转发 | `x11-req` + 本地 X server 桥接（`$DISPLAY` / `/tmp/.X11-unix`） | ✅ |
 | Telnet | RFC 854 协商 + NAWS 窗口自适应 | ✅ |
 | 本地终端 | flutter_pty 真伪终端，登录 shell | ✅ |
 | 多会话命令广播 | 标签右键「切换命令广播」，输入实时同步到所有广播会话 | ✅ |
-| 宏命令 | 宏面板：命令序列 + 延时，一键发送 | ✅ |
-| 主机密钥校验 | TOFU 策略 + known_hosts 存储 + 指纹变更警告 | ✅ |
-| 快速连接 | 顶栏 `user@host:port` 一键连接 | ✅ |
-| 串口 (Serial) | 预留类型与配置 UI，等待 libserialport 插件 | 🚧 |
-| 分屏 | 规划中 | 🚧 |
+| 宏命令 | 宏面板 + 工具栏录制（按回车切分命令） | ✅ |
+| 主机密钥校验 | TOFU 策略 + known_hosts 管理 + 指纹变更警告 | ✅ |
+| 快速连接 | 顶栏 `user@host:port` 一键连接，可记入保险库 | ✅ |
+| 命令片段 | 宏面板中的单条命令，点击即发送 | ✅ |
+| 远程文本编辑 | SFTP 右键编辑，写回同一条连接 | ✅ |
+| 终端查找 / 配色 / 选中即复制 | Ctrl+F、多套配色、Ctrl+点击打开链接 | ✅ |
+| 分屏 | 左右 / 上下分屏，标签右键或工具栏 | ✅ |
+| 导入 OpenSSH 配置 | 工具菜单读取 `~/.ssh/config`，保留跳板链 | ✅ |
+| 密钥生成 | 调用系统 `ssh-keygen`（ed25519 / RSA） | ✅ |
+| 会话导入导出 | JSON 备份会话与宏 | ✅ |
+| 会话日志 | 单会话或全局记录终端输出 | ✅ |
+| 断线重连 | 指数退避，最多 6 次 | ✅ |
+| 网络探测 | TCP 连接与 ping | ✅ |
+| 串口 (Serial) | Linux termios 打开 `/dev/ttyUSB*`、`ttyACM*`，可配波特率、校验和停止位 | ✅ |
 | 内置 X server | 依赖系统 X11/Wayland（不内置） | ➖ |
 
 ## 快速开始
@@ -113,12 +127,13 @@ lib/
 
 ## 路线图
 
-- [ ] 串口会话（libserialport）
-- [ ] 终端分屏
-- [ ] Zmodem（xterm 包已内置支持）
-- [ ] SSH Agent 转发
+- [x] 终端分屏
+- [x] SSH Agent 登录与转发
+- [x] SFTP 跟随目录、远程编辑、终端查找与配色
+- [x] 串口会话（Linux termios）
+- [x] Zmodem（`sz` / `rz`）
 - [ ] 鸿蒙平台适配（ArkUI 壳 + flutter_flutter 分支）
-- [ ] 自动化测试覆盖 core 层
+- [ ] 内置 RDP / VNC
 
 ## License
 

@@ -2,6 +2,7 @@
 /// connection. This powers the MobaXterm-style left sidebar browser.
 library;
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -160,6 +161,60 @@ class SftpService {
   Future<void> deleteDir(String path) async => (await client).rmdir(path);
 
   Future<void> mkdir(String path) async => (await client).mkdir(path);
+
+  Future<Uint8List> readBytes(String path, {int maxBytes = 1024 * 1024}) async {
+    final sftp = await client;
+    final file = await sftp.open(path);
+    try {
+      return await file.readBytes(length: maxBytes);
+    } finally {
+      await file.close();
+    }
+  }
+
+  Future<String> readText(String path, {int maxBytes = 1024 * 1024}) async {
+    final sftp = await client;
+    final size = (await sftp.stat(path)).size ?? 0;
+    if (size > maxBytes) {
+      throw StateError('文件超过 1MB，请在远程用编辑器打开');
+    }
+    final bytes = await readBytes(path, maxBytes: maxBytes);
+    if (bytes.contains(0)) {
+      throw StateError('这不是文本文件');
+    }
+    return utf8.decode(bytes, allowMalformed: true);
+  }
+
+  Future<void> writeText(String path, String text) async {
+    final sftp = await client;
+    final file = await sftp.open(
+      path,
+      mode: SftpFileOpenMode.write |
+          SftpFileOpenMode.create |
+          SftpFileOpenMode.truncate,
+    );
+    try {
+      final writer = file.write(
+        Stream.value(Uint8List.fromList(utf8.encode(text))),
+      );
+      await writer.done;
+    } finally {
+      await file.close();
+    }
+  }
+
+  Future<void> removeTree(String path) async {
+    final entries = await list(path);
+    for (final entry in entries) {
+      if (entry.name == '.' || entry.name == '..') continue;
+      if (entry.isDirectory) {
+        await removeTree(entry.fullPath);
+      } else {
+        await deleteFile(entry.fullPath);
+      }
+    }
+    await deleteDir(path);
+  }
 
   Future<void> chmod(String path, int mode) async {
     final sftp = await client;

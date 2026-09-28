@@ -6,8 +6,10 @@ import 'package:flutter/material.dart';
 
 import '../../core/ssh/sftp_service.dart';
 import '../../core/terminal/ssh_terminal_session.dart';
+import '../../core/terminal/terminal_session.dart';
 import '../../state/app_state.dart';
 import '../dialogs/app_dialogs.dart';
+import 'remote_editor.dart';
 
 /// Remote file browser attached to the active SSH session, with transfers.
 class SftpPanel extends StatefulWidget {
@@ -40,23 +42,55 @@ class _SftpPanelState extends State<SftpPanel> {
   List<SftpEntry> _entries = [];
   bool _loading = false;
   String? _error;
+  bool _follow = true;
+  String _filter = '';
   final List<_TransferJob> _jobs = [];
+  final _pathCtrl = TextEditingController();
+  final _filterCtrl = TextEditingController();
   Timer? _refreshTicker;
+  StreamSubscription<SessionEvent>? _cwdSub;
 
   SftpService? get _sftp => widget.ssh.sftp;
 
   @override
   void initState() {
     super.initState();
-    _load(widget.ssh.sftp?.cwd.isNotEmpty == true ? widget.ssh.sftp!.cwd : '/');
+    _follow = widget.ssh.profile.followTerminalFolder;
+    _listenCwd();
+    final start = widget.ssh.remoteCwd.isNotEmpty
+        ? widget.ssh.remoteCwd
+        : (widget.ssh.sftp?.cwd.isNotEmpty == true ? widget.ssh.sftp!.cwd : '/');
+    _load(start);
     _refreshTicker = Timer.periodic(const Duration(milliseconds: 400), (_) {
       if (_jobs.any((j) => !j.finished)) setState(() {});
     });
   }
 
   @override
+  void didUpdateWidget(covariant SftpPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.ssh != widget.ssh) {
+      _follow = widget.ssh.profile.followTerminalFolder;
+      _listenCwd();
+      _load(widget.ssh.remoteCwd.isNotEmpty ? widget.ssh.remoteCwd : '/');
+    }
+  }
+
+  void _listenCwd() {
+    _cwdSub?.cancel();
+    _cwdSub = widget.ssh.events.listen((event) {
+      if (event is SessionCwdChanged && _follow && event.path != _path) {
+        _load(event.path);
+      }
+    });
+  }
+
+  @override
   void dispose() {
     _refreshTicker?.cancel();
+    _cwdSub?.cancel();
+    _pathCtrl.dispose();
+    _filterCtrl.dispose();
     super.dispose();
   }
 
@@ -67,6 +101,7 @@ class _SftpPanelState extends State<SftpPanel> {
       _loading = true;
       _error = null;
       _path = path;
+      if (_pathCtrl.text != path) _pathCtrl.text = path;
     });
     try {
       final entries = await sftp.list(path);
@@ -165,7 +200,7 @@ class _SftpPanelState extends State<SftpPanel> {
                 child: SizedBox(
                   height: 30,
                   child: TextField(
-                    controller: TextEditingController(text: _path),
+                    controller: _pathCtrl,
                     style: const TextStyle(fontSize: 11.5),
                     decoration: const InputDecoration(
                       isDense: true,
@@ -177,11 +212,72 @@ class _SftpPanelState extends State<SftpPanel> {
                 ),
               ),
               IconButton(
+                icon: Icon(
+                  _follow ? Icons.my_location : Icons.location_disabled,
+                  size: 16,
+                ),
+                tooltip: _follow ? '正在跟随终端目录' : '目录已固定',
+                onPressed: () => setState(() => _follow = !_follow),
+              ),
+              IconButton(
+                icon: Icon(
+                  widget.app.settings.sftpBookmarks.contains(_path)
+                      ? Icons.star
+                      : Icons.star_border,
+                  size: 16,
+                ),
+                tooltip: '收藏当前目录',
+                onPressed: () {
+                  widget.app.settings.toggleBookmark(_path);
+                  setState(() {});
+                },
+              ),
+              IconButton(
                 icon: const Icon(Icons.upload_file, size: 16),
                 tooltip: '上传文件',
                 onPressed: _upload,
               ),
+              IconButton(
+                icon: const Icon(Icons.note_add_outlined, size: 16),
+                tooltip: '新建文件',
+                onPressed: _createFile,
+              ),
             ],
+          ),
+        ),
+        if (widget.app.settings.sftpBookmarks.isNotEmpty)
+          SizedBox(
+            height: 28,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                for (final bookmark in widget.app.settings.sftpBookmarks)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 6),
+                    child: ActionChip(
+                      label: Text(bookmark, style: const TextStyle(fontSize: 10)),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => _load(bookmark),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+          child: SizedBox(
+            height: 28,
+            child: TextField(
+              controller: _filterCtrl,
+              style: const TextStyle(fontSize: 12),
+              decoration: const InputDecoration(
+                isDense: true,
+                hintText: '过滤文件名',
+                prefixIcon: Icon(Icons.filter_alt_outlined, size: 14),
+                contentPadding: EdgeInsets.zero,
+              ),
+              onChanged: (value) => setState(() => _filter = value.trim()),
+            ),
           ),
         ),
         Divider(height: 1, color: scheme.outlineVariant),
@@ -192,9 +288,9 @@ class _SftpPanelState extends State<SftpPanel> {
               : _error != null
                   ? _ErrorRetry(error: _error!, onRetry: () => _load(_path))
                   : ListView.builder(
-                      itemCount: _entries.length,
+                      itemCount: _visible.length,
                       itemBuilder: (context, i) {
-                        final e = _entries[i];
+                        final e = _visible[i];
                         return _EntryTile(
                           entry: e,
                           onTap: () {
@@ -244,13 +340,57 @@ class _SftpPanelState extends State<SftpPanel> {
     );
   }
 
+  List<SftpEntry> get _visible {
+    if (_filter.isEmpty) return _entries;
+    final needle = _filter.toLowerCase();
+    return _entries
+        .where((e) => e.name == '..' || e.name.toLowerCase().contains(needle))
+        .toList();
+  }
+
+  Future<void> _createFile() async {
+    final sftp = _sftp;
+    if (sftp == null) return;
+    final name = await showPromptDialog(context, title: '新建文件');
+    if (name == null || name.isEmpty) return;
+    await sftp.writeText('$_path/$name', '');
+    _load(_path);
+  }
+
+  Future<void> _downloadTree(SftpEntry entry, Directory local) async {
+    final sftp = _sftp;
+    if (sftp == null) return;
+    await local.create(recursive: true);
+    final children = await sftp.list(entry.fullPath);
+    for (final child in children) {
+      if (child.name == '.' || child.name == '..') continue;
+      if (child.isDirectory) {
+        await _downloadTree(child, Directory('${local.path}/${child.name}'));
+      } else {
+        final job = _TransferJob(
+          name: '↓ ${child.name}',
+          upload: false,
+          total: child.size,
+        );
+        if (mounted) setState(() => _jobs.add(job));
+        await sftp.downloadFile(
+          child.fullPath,
+          File('${local.path}/${child.name}'),
+          onProgress: (done, total) => job.done = done,
+        );
+      }
+    }
+  }
+
   void _entryMenu(BuildContext context, SftpEntry e, Offset pos) {
     showMenu<String>(
       context: context,
       position: RelativeRect.fromLTRB(pos.dx, pos.dy, pos.dx + 1, pos.dy + 1),
       items: [
-        if (!e.isDirectory && e.name != '..')
+        if (e.name != '..')
           const PopupMenuItem(value: 'download', child: Text('下载…')),
+        if (!e.isDirectory && e.name != '..')
+          const PopupMenuItem(value: 'edit', child: Text('编辑')),
         const PopupMenuItem(value: 'upload', child: Text('上传文件…')),
         if (e.name != '..') ...[
           const PopupMenuItem(value: 'rename', child: Text('重命名…')),
@@ -266,7 +406,19 @@ class _SftpPanelState extends State<SftpPanel> {
       if (sftp == null) return;
       switch (v) {
         case 'download':
-          await _download(e);
+          if (e.isDirectory) {
+            final dir = await getDirectoryPath(confirmButtonText: '保存到此处');
+            if (dir == null) return;
+            await _downloadTree(e, Directory('$dir/${e.name}'));
+            _load(_path);
+          } else {
+            await _download(e);
+          }
+        case 'edit':
+          final sftpEdit = _sftp;
+          if (sftpEdit != null && context.mounted) {
+            await showRemoteEditor(context, sftp: sftpEdit, path: e.fullPath);
+          }
         case 'upload':
           await _upload();
         case 'rename':
@@ -302,7 +454,7 @@ class _SftpPanelState extends State<SftpPanel> {
           );
           if (ok) {
             if (e.isDirectory) {
-              await sftp.deleteDir(e.fullPath);
+              await sftp.removeTree(e.fullPath);
             } else {
               await sftp.deleteFile(e.fullPath);
             }

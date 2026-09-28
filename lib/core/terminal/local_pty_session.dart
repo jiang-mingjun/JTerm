@@ -12,7 +12,7 @@ import 'package:flutter_pty/flutter_pty.dart';
 import 'terminal_session.dart';
 
 class LocalPtySession extends TerminalSessionBase {
-  LocalPtySession(super.profile);
+  LocalPtySession(super.profile, {super.maxLines});
 
   Pty? _pty;
   StreamSubscription<Uint8List>? _outSub;
@@ -29,6 +29,7 @@ class LocalPtySession extends TerminalSessionBase {
     _started = true;
     emitStatus(SessionStatus.connecting);
     try {
+      await ensureLog();
       final pty = Pty.start(
         _shell,
         arguments: ['-l'],
@@ -39,12 +40,9 @@ class LocalPtySession extends TerminalSessionBase {
       _pty = pty;
 
       _outSub = pty.output.listen(
-        (data) => terminal.write(utf8.decode(data, allowMalformed: true)),
+        (data) => paint(utf8.decode(data, allowMalformed: true)),
       );
-      terminal.onOutput = (data) {
-        onInputHook?.call(data);
-        pty.write(Uint8List.fromList(utf8.encode(data)));
-      };
+      terminal.onOutput = handleUserInput;
       terminal.onTitleChange = (t) => emitTitle(t);
 
       emitStatus(SessionStatus.connected);
@@ -53,6 +51,7 @@ class LocalPtySession extends TerminalSessionBase {
       final code = await pty.exitCode;
       emitStatus(SessionStatus.disconnected, 'process exited ($code)');
     } catch (e) {
+      _started = false;
       emitStatus(SessionStatus.failed, e.toString());
     }
   }
@@ -67,11 +66,13 @@ class LocalPtySession extends TerminalSessionBase {
 
   @override
   Future<void> resize(int cols, int rows) async {
+    noteViewport(cols, rows);
     _pty?.resize(rows, cols);
   }
 
   @override
   Future<void> disconnect() async {
+    _started = false;
     await _outSub?.cancel();
     _outSub = null;
     _pty?.kill();

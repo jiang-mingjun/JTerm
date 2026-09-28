@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/store/credential_vault.dart';
+import '../../core/terminal/terminal_themes.dart';
 import '../../state/app_state.dart';
 
 /// Application settings dialog.
@@ -98,6 +99,78 @@ class SettingsPage extends StatelessWidget {
                 ),
                 style: const TextStyle(fontSize: 13),
                 onChanged: (v) => settings.fontFamily = v.trim(),
+              ),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                initialValue: settings.terminalTheme,
+                decoration: const InputDecoration(
+                  labelText: '终端配色',
+                  isDense: true,
+                ),
+                items: [
+                  for (final choice in terminalThemeChoices)
+                    DropdownMenuItem(
+                      value: choice.id,
+                      child: Text(choice.label),
+                    ),
+                ],
+                onChanged: (value) {
+                  if (value != null) settings.terminalTheme = value;
+                },
+              ),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                initialValue: settings.cursorStyle,
+                decoration: const InputDecoration(
+                  labelText: '光标',
+                  isDense: true,
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'block', child: Text('方块')),
+                  DropdownMenuItem(value: 'underline', child: Text('下划线')),
+                  DropdownMenuItem(value: 'bar', child: Text('竖线')),
+                ],
+                onChanged: (value) {
+                  if (value != null) settings.cursorStyle = value;
+                },
+              ),
+              Row(
+                children: [
+                  const Text('回滚行数'),
+                  Expanded(
+                    child: Slider(
+                      value: settings.scrollbackLines.toDouble().clamp(2000, 50000),
+                      min: 2000,
+                      max: 50000,
+                      divisions: 16,
+                      label: '${settings.scrollbackLines}',
+                      onChanged: (v) => settings.scrollbackLines = v.round(),
+                    ),
+                  ),
+                ],
+              ),
+              const Text('回滚行数在下次新建会话时生效',
+                  style: TextStyle(fontSize: 11)),
+              SwitchListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('选中即复制', style: TextStyle(fontSize: 13)),
+                value: settings.copyOnSelect,
+                onChanged: (v) => settings.copyOnSelect = v,
+              ),
+              SwitchListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('可视响铃', style: TextStyle(fontSize: 13)),
+                value: settings.visualBell,
+                onChanged: (v) => settings.visualBell = v,
+              ),
+              SwitchListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('记录全部会话输出', style: TextStyle(fontSize: 13)),
+                value: settings.logSessions,
+                onChanged: (v) => settings.logSessions = v,
               ),
               const Divider(),
 

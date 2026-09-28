@@ -37,6 +37,8 @@ class KnownHostsStore {
   final JsonStore store;
   final List<KnownHost> _hosts = [];
 
+  List<KnownHost> get hosts => List.unmodifiable(_hosts);
+
   Future<void> load() async {
     final data = await store.read();
     if (data == null) return;
@@ -69,6 +71,14 @@ class KnownHostsStore {
       keyType: keyType,
       firstSeenMs: DateTime.now().millisecondsSinceEpoch,
     ));
-    await store.write({'hosts': _hosts.map((h) => h.toJson()).toList()});
+    await _persist();
   }
+
+  Future<void> forget(String host) async {
+    _hosts.removeWhere((h) => h.host == host);
+    await _persist();
+  }
+
+  Future<void> _persist() =>
+      store.write({'hosts': _hosts.map((h) => h.toJson()).toList()});
 }

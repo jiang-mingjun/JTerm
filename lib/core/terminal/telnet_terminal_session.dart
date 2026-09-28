@@ -8,7 +8,7 @@ import '../telnet/telnet_client.dart';
 import 'terminal_session.dart';
 
 class TelnetTerminalSession extends TerminalSessionBase {
-  TelnetTerminalSession(super.profile);
+  TelnetTerminalSession(super.profile, {super.maxLines});
 
   TelnetClient? _client;
   StreamSubscription? _sub;
@@ -20,17 +20,15 @@ class TelnetTerminalSession extends TerminalSessionBase {
     emitStatus(SessionStatus.connecting);
     _userClosed = false;
     try {
+      await ensureLog();
       final client = TelnetClient(profile.host!, profile.port);
       _client = client;
       await client.connect();
 
       _sub = client.onData.listen(
-        (data) => terminal.write(utf8.decode(data, allowMalformed: true)),
+        (data) => paint(utf8.decode(data, allowMalformed: true)),
       );
-      terminal.onOutput = (data) {
-        onInputHook?.call(data);
-        client.write(data);
-      };
+      terminal.onOutput = handleUserInput;
 
       emitStatus(SessionStatus.connected);
       emitTitle(profile.name);
@@ -54,6 +52,7 @@ class TelnetTerminalSession extends TerminalSessionBase {
 
   @override
   Future<void> resize(int cols, int rows) async {
+    noteViewport(cols, rows);
     _client?.resize(cols, rows);
   }
 

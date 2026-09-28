@@ -119,9 +119,51 @@ class _SessionEditorState extends State<_SessionEditor> {
                       DropdownMenuItem(value: 38400, child: Text('38400')),
                       DropdownMenuItem(value: 57600, child: Text('57600')),
                       DropdownMenuItem(value: 115200, child: Text('115200')),
+                      DropdownMenuItem(value: 230400, child: Text('230400')),
                     ],
                     onChanged: (v) => p.serialBaudRate = v ?? 115200,
                   ),
+                  Row(children: [
+                    Expanded(
+                      child: DropdownButtonFormField<int>(
+                        initialValue: p.serialDataBits,
+                        decoration: const InputDecoration(
+                            labelText: '数据位', isDense: true),
+                        items: const [
+                          DropdownMenuItem(value: 8, child: Text('8')),
+                          DropdownMenuItem(value: 7, child: Text('7')),
+                        ],
+                        onChanged: (v) => p.serialDataBits = v ?? 8,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        initialValue: p.serialParity,
+                        decoration: const InputDecoration(
+                            labelText: '校验', isDense: true),
+                        items: const [
+                          DropdownMenuItem(value: 'none', child: Text('无')),
+                          DropdownMenuItem(value: 'even', child: Text('偶')),
+                          DropdownMenuItem(value: 'odd', child: Text('奇')),
+                        ],
+                        onChanged: (v) => p.serialParity = v ?? 'none',
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: DropdownButtonFormField<int>(
+                        initialValue: p.serialStopBits,
+                        decoration: const InputDecoration(
+                            labelText: '停止位', isDense: true),
+                        items: const [
+                          DropdownMenuItem(value: 1, child: Text('1')),
+                          DropdownMenuItem(value: 2, child: Text('2')),
+                        ],
+                        onChanged: (v) => p.serialStopBits = v ?? 1,
+                      ),
+                    ),
+                  ]),
                 ] else ...[
                   Row(children: [
                     Expanded(
@@ -160,6 +202,21 @@ class _SessionEditorState extends State<_SessionEditor> {
                     onChanged: (v) => p.username = v.trim(),
                   ),
                 ],
+                SwitchListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('启动时自动连接', style: TextStyle(fontSize: 13)),
+                  value: p.autoConnect,
+                  onChanged: (v) => setState(() => p.autoConnect = v),
+                ),
+                TextFormField(
+                  initialValue: p.notes,
+                  decoration: const InputDecoration(
+                    labelText: '备注',
+                    isDense: true,
+                  ),
+                  onChanged: (v) => p.notes = v,
+                ),
                 const SizedBox(height: 8),
                 TextFormField(
                   initialValue: p.group,
@@ -182,6 +239,7 @@ class _SessionEditorState extends State<_SessionEditor> {
                       ButtonSegment(value: AuthMethod.password, label: Text('密码')),
                       ButtonSegment(
                           value: AuthMethod.publicKey, label: Text('密钥')),
+                      ButtonSegment(value: AuthMethod.agent, label: Text('Agent')),
                     ],
                     selected: {p.authMethod},
                     onSelectionChanged: (s) =>
@@ -189,6 +247,12 @@ class _SessionEditorState extends State<_SessionEditor> {
                     showSelectedIcon: false,
                   ),
                   const SizedBox(height: 8),
+                  if (p.authMethod == AuthMethod.agent)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: Text('使用本机 ssh-agent（SSH_AUTH_SOCK）里的密钥登录。',
+                          style: TextStyle(fontSize: 12)),
+                    ),
                   if (p.authMethod == AuthMethod.publicKey)
                     Row(children: [
                       Expanded(
@@ -221,9 +285,7 @@ class _SessionEditorState extends State<_SessionEditor> {
                       const DropdownMenuItem(value: null, child: Text('不使用')),
                       for (final s in widget.app.repo.sessions
                           .where((s) =>
-                              s.type == SessionType.ssh &&
-                              s.id != p.id &&
-                              s.jumpViaSessionId == null))
+                              s.type == SessionType.ssh && s.id != p.id))
                         DropdownMenuItem(value: s.id, child: Text(s.name)),
                     ],
                     onChanged: (v) => p.jumpViaSessionId = v,
@@ -244,6 +306,100 @@ class _SessionEditorState extends State<_SessionEditor> {
                     value: p.autoOpenSftp,
                     onChanged: (v) => setState(() => p.autoOpenSftp = v),
                   ),
+                  SwitchListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('SFTP 跟随终端目录',
+                        style: TextStyle(fontSize: 13)),
+                    value: p.followTerminalFolder,
+                    onChanged: (v) =>
+                        setState(() => p.followTerminalFolder = v),
+                  ),
+                  SwitchListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('转发 SSH Agent',
+                        style: TextStyle(fontSize: 13)),
+                    subtitle: const Text('优先使用本机 SSH_AUTH_SOCK',
+                        style: TextStyle(fontSize: 11)),
+                    value: p.agentForwarding,
+                    onChanged: (v) => setState(() => p.agentForwarding = v),
+                  ),
+                  SwitchListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('记录会话输出',
+                        style: TextStyle(fontSize: 13)),
+                    value: p.logSession,
+                    onChanged: (v) => setState(() => p.logSession = v),
+                  ),
+                  DropdownButtonFormField<ProxyKind>(
+                    initialValue: p.proxyKind,
+                    decoration: const InputDecoration(
+                      labelText: '出站代理',
+                      isDense: true,
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: ProxyKind.none, child: Text('不使用代理')),
+                      DropdownMenuItem(
+                          value: ProxyKind.socks5, child: Text('SOCKS5')),
+                      DropdownMenuItem(
+                          value: ProxyKind.httpConnect, child: Text('HTTP CONNECT')),
+                    ],
+                    onChanged: (v) =>
+                        setState(() => p.proxyKind = v ?? ProxyKind.none),
+                  ),
+                  if (p.proxyKind != ProxyKind.none)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            initialValue: p.proxyHost ?? '',
+                            decoration: const InputDecoration(
+                              labelText: '代理主机',
+                              isDense: true,
+                            ),
+                            onChanged: (v) =>
+                                p.proxyHost = v.trim().isEmpty ? null : v.trim(),
+                          ),
+                        ),
+                      const SizedBox(width: 8),
+                      SizedBox(
+                        width: 90,
+                        child: TextFormField(
+                          initialValue: '${p.proxyPort}',
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: '代理端口',
+                            isDense: true,
+                          ),
+                          onChanged: (v) =>
+                              p.proxyPort = int.tryParse(v) ?? 1080,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (p.proxyKind != ProxyKind.none)
+                    TextFormField(
+                      initialValue: p.proxyUsername ?? '',
+                      decoration: const InputDecoration(
+                        labelText: '代理用户名（可空，连接时询问密码）',
+                        isDense: true,
+                      ),
+                      onChanged: (v) => p.proxyUsername =
+                          v.trim().isEmpty ? null : v.trim(),
+                    ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    initialValue: '${p.keepAliveSeconds}',
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: '心跳间隔（秒）',
+                      isDense: true,
+                    ),
+                    onChanged: (v) =>
+                        p.keepAliveSeconds = int.tryParse(v) ?? 15,
+                  ),
                   TextFormField(
                     initialValue: p.startupCommand,
                     decoration: const InputDecoration(
@@ -258,6 +414,8 @@ class _SessionEditorState extends State<_SessionEditor> {
                     items: const [
                       DropdownMenuItem(
                           value: ReconnectPolicy.onDrop, child: Text('断开后重连')),
+                      DropdownMenuItem(
+                          value: ReconnectPolicy.always, child: Text('始终重连')),
                       DropdownMenuItem(
                           value: ReconnectPolicy.never, child: Text('从不')),
                     ],

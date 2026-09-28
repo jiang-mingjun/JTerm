@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/models/macro.dart';
+import '../../core/models/snippet.dart';
 import '../../state/app_state.dart';
 import '../../state/tabs_state.dart';
 import '../dialogs/app_dialogs.dart';
@@ -15,7 +16,11 @@ class MacroPanel extends StatelessWidget {
 
   Future<void> _run(Macro macro) async {
     for (final step in macro.steps) {
-      tabs.sendCommand(step.command);
+      var command = step.command;
+      if (!command.endsWith('\n') && !command.endsWith('\r')) {
+        command = '$command\n';
+      }
+      tabs.sendCommand(command);
       await Future<void>.delayed(Duration(milliseconds: step.delayMs));
     }
   }
@@ -43,38 +48,61 @@ class MacroPanel extends StatelessWidget {
         ),
         Divider(height: 1, color: scheme.outlineVariant),
         Expanded(
-          child: app.repo.macros.isEmpty
-              ? const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(20),
-                    child: Text('宏可以保存一组常用命令序列，一键发送到会话',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 12)),
-                  ),
-                )
-              : ListView.builder(
-                  itemCount: app.repo.macros.length,
-                  itemBuilder: (context, i) {
-                    final m = app.repo.macros[i];
-                    return GestureDetector(
-                      onSecondaryTapUp: (d) =>
-                          _menu(context, m, d.globalPosition),
-                      child: ListTile(
-                        dense: true,
-                        leading: const Icon(Icons.auto_awesome, size: 16),
-                        title: Text(m.name,
-                            style: const TextStyle(fontSize: 12.5)),
-                        subtitle: Text(
-                          m.steps.map((s) => s.command).take(2).join(' ; '),
-                          style:
-                              TextStyle(fontSize: 10, color: scheme.outline),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        onTap: () => _run(m),
-                      ),
-                    );
-                  },
+          child: ListView(
+            children: [
+              if (app.repo.macros.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('宏可以保存一组常用命令序列，一键发送到会话',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12)),
                 ),
+              for (final m in app.repo.macros)
+                GestureDetector(
+                  onSecondaryTapUp: (d) => _menu(context, m, d.globalPosition),
+                  child: ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.auto_awesome, size: 16),
+                    title: Text(m.name, style: const TextStyle(fontSize: 12.5)),
+                    subtitle: Text(
+                      m.steps.map((s) => s.command).take(2).join(' ; '),
+                      style: TextStyle(fontSize: 10, color: scheme.outline),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onTap: () => _run(m),
+                  ),
+                ),
+              const Divider(height: 1),
+              ListTile(
+                dense: true,
+                leading: const Icon(Icons.bolt, size: 16),
+                title: const Text('命令片段', style: TextStyle(fontSize: 12.5)),
+                trailing: IconButton(
+                  icon: const Icon(Icons.add, size: 16),
+                  tooltip: '新建片段',
+                  onPressed: () => _editSnippet(context, null),
+                ),
+              ),
+              for (final s in app.repo.snippets)
+                ListTile(
+                  dense: true,
+                  title: Text(s.name, style: const TextStyle(fontSize: 12.5)),
+                  subtitle: Text(s.command,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 10, color: scheme.outline)),
+                  onTap: () {
+                    final cmd = s.command.endsWith('\n') ? s.command : '${s.command}\n';
+                    tabs.sendCommand(cmd);
+                  },
+                  onLongPress: () => _editSnippet(context, s),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.close, size: 14),
+                    onPressed: () => app.repo.deleteSnippet(s.id),
+                  ),
+                ),
+            ],
+          ),
         ),
       ],
     );
@@ -102,6 +130,26 @@ class MacroPanel extends StatelessWidget {
           if (ok && context.mounted) await app.repo.deleteMacro(m.id);
       }
     });
+  }
+
+  Future<void> _editSnippet(BuildContext context, Snippet? initial) async {
+    final name = await showPromptDialog(
+      context,
+      title: '片段名称',
+      initialValue: initial?.name,
+    );
+    if (name == null || name.isEmpty || !context.mounted) return;
+    final command = await showPromptDialog(
+      context,
+      title: '要发送的命令',
+      initialValue: initial?.command,
+    );
+    if (command == null || command.isEmpty || !context.mounted) return;
+    await app.repo.saveSnippet(Snippet(
+      id: initial?.id ?? 'snip-${DateTime.now().millisecondsSinceEpoch}',
+      name: name,
+      command: command,
+    ));
   }
 
   Future<void> _edit(BuildContext context, Macro? initial) async {

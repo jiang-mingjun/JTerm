@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'state/app_state.dart';
 import 'ui/main_shell.dart';
+import 'ui/theme/app_theme.dart';
 
 class JTermApp extends StatelessWidget {
   const JTermApp({super.key});
@@ -18,19 +19,8 @@ class JTermApp extends StatelessWidget {
       title: 'JTerm',
       debugShowCheckedModeBanner: false,
       themeMode: (settings?.darkMode ?? true) ? ThemeMode.dark : ThemeMode.light,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: seed),
-        useMaterial3: true,
-        fontFamily: 'monospace',
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: seed,
-          brightness: Brightness.dark,
-        ),
-        useMaterial3: true,
-        fontFamily: 'monospace',
-      ),
+      theme: jtermTheme(dark: false, seed: seed),
+      darkTheme: jtermTheme(dark: true, seed: seed),
       home: settings == null
           ? const _BootScreen()
           : ChangeNotifierProvider.value(
@@ -47,14 +37,33 @@ class _BootScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
-    return Material(
+    final scheme = Theme.of(context).colorScheme;
+    return ColoredBox(
+      color: scheme.surface,
       child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const CircularProgressIndicator(),
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: scheme.primary.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(Icons.terminal_rounded, color: scheme.primary, size: 28),
+            ),
             const SizedBox(height: 16),
-            Text(app.initError ?? '正在初始化 JTerm…'),
+            Text(app.initError ?? '正在启动 JTerm…',
+                style: TextStyle(color: scheme.onSurfaceVariant)),
+            if (app.initError == null) ...[
+              const SizedBox(height: 16),
+              const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ],
           ],
         ),
       ),

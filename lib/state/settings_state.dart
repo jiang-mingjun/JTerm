@@ -46,4 +46,54 @@ class SettingsState extends ChangeNotifier {
     _prefs.setString('downloadDir', v);
     notifyListeners();
   }
+
+  String get terminalTheme => _prefs.getString('terminalTheme') ?? 'jterm-dark';
+  set terminalTheme(String v) {
+    _prefs.setString('terminalTheme', v);
+    notifyListeners();
+  }
+
+  String get cursorStyle => _prefs.getString('cursorStyle') ?? 'block';
+  set cursorStyle(String v) {
+    _prefs.setString('cursorStyle', v);
+    notifyListeners();
+  }
+
+  bool get copyOnSelect => _prefs.getBool('copyOnSelect') ?? true;
+  set copyOnSelect(bool v) {
+    _prefs.setBool('copyOnSelect', v);
+    notifyListeners();
+  }
+
+  bool get visualBell => _prefs.getBool('visualBell') ?? true;
+  set visualBell(bool v) {
+    _prefs.setBool('visualBell', v);
+    notifyListeners();
+  }
+
+  bool get logSessions => _prefs.getBool('logSessions') ?? false;
+  set logSessions(bool v) {
+    _prefs.setBool('logSessions', v);
+    notifyListeners();
+  }
+
+  int get scrollbackLines => _prefs.getInt('scrollbackLines') ?? 10000;
+  set scrollbackLines(int v) {
+    _prefs.setInt('scrollbackLines', v);
+    notifyListeners();
+  }
+
+  List<String> get sftpBookmarks =>
+      _prefs.getStringList('sftpBookmarks') ?? const [];
+
+  void toggleBookmark(String path) {
+    final next = [...sftpBookmarks];
+    if (next.contains(path)) {
+      next.remove(path);
+    } else {
+      next.add(path);
+    }
+    _prefs.setStringList('sftpBookmarks', next);
+    notifyListeners();
+  }
 }

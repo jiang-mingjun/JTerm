@@ -14,6 +14,10 @@ import 'package:dartssh2/dartssh2.dart';
 
 import '../models/session_profile.dart';
 import '../store/known_hosts_store.dart';
+import 'agent_forward.dart';
+import 'proxy_connector.dart';
+import 'socks_socket.dart';
+import 'ssh_agent_client.dart';
 import 'ssh_credentials.dart';
 
 /// What the user answered to a host-key prompt.
@@ -24,6 +28,7 @@ class SshConnectHooks {
   SshConnectHooks({
     required this.verifyHostKey,
     required this.missingPassword,
+    this.keyboardInteractive,
   });
 
   /// Ask the user about an unknown / changed host key.
@@ -32,14 +37,23 @@ class SshConnectHooks {
 
   /// Ask the user for a password (or key passphrase).
   final Future<String?> Function(String prompt, {bool obscure, String? initial}) missingPassword;
+
+  /// Keyboard-interactive prompts (OTP, PAM, Duo, ...). Return null to cancel.
+  final Future<List<String>?> Function(
+    String name,
+    String instruction,
+    List<({String prompt, bool echo})> prompts,
+  )? keyboardInteractive;
 }
 
 class SshConnection {
   SshConnection._();
 
   SSHClient? client;
+  SshAgentClient? agent;
   String? connectedHost;
   int connectedPort = 22;
+  final authBanner = StringBuffer();
 
   final _x11ChannelCtrl = StreamController<SSHX11Channel>.broadcast();
 
@@ -79,19 +93,75 @@ class SshConnection {
     final host = profile.host!;
     final port = profile.port;
 
-    // ---- transport socket (direct or through a jump host) ----
+    // ---- transport socket (jump host, proxy, or direct) ----
     final SSHSocket socket;
     if (jumpConnection != null && jumpConnection.isAlive) {
       socket = await jumpConnection.client!.forwardLocal(host, port);
+    } else if (profile.proxyKind != ProxyKind.none &&
+        (profile.proxyHost ?? '').isNotEmpty) {
+      final proxyUser = profile.proxyUsername ?? '';
+      String? proxyPassword;
+      if (proxyUser.isNotEmpty && hooks != null) {
+        proxyPassword = await hooks.missingPassword(
+          '代理密码 $proxyUser@${profile.proxyHost}',
+          obscure: true,
+        );
+      }
+      if (profile.proxyKind == ProxyKind.socks5 && proxyUser.isEmpty) {
+        socket = await connectSocks5(
+          proxyHost: profile.proxyHost!,
+          proxyPort: profile.proxyPort,
+          targetHost: host,
+          targetPort: port,
+          timeout: timeout,
+        );
+      } else {
+        socket = await ProxyConnector.open(
+          kind: profile.proxyKind,
+          proxyHost: profile.proxyHost!,
+          proxyPort: profile.proxyPort,
+          targetHost: host,
+          targetPort: port,
+          username: proxyUser.isEmpty ? null : proxyUser,
+          password: proxyPassword,
+          timeout: timeout,
+        );
+      }
     } else {
       socket = await SSHSocket.connect(host, port, timeout: timeout);
     }
 
     var passwordAttempt = creds.password;
+    List<SSHIdentity>? identities = _loadIdentities(creds);
+    if (profile.authMethod == AuthMethod.agent) {
+      agent = await SshAgentClient.connect();
+      final fromAgent = await agent?.identities() ?? [];
+      if (fromAgent.isEmpty) {
+        throw StateError('没有可用的 SSH agent 密钥，请确认 SSH_AUTH_SOCK');
+      }
+      identities = fromAgent;
+    }
+    final agentHandler = profile.agentForwarding
+        ? await buildAgentHandler(identities?.whereType<SSHKeyPair>().toList())
+        : null;
 
     final client = SSHClient(
       socket,
       username: creds.username,
+      ident: 'JTerm_0.2',
+      onUserauthBanner: authBanner.writeln,
+      onUserInfoRequest: hooks?.keyboardInteractive == null
+          ? null
+          : (request) {
+              return hooks!.keyboardInteractive!(
+                request.name,
+                request.instruction,
+                [
+                  for (final p in request.prompts)
+                    (prompt: p.promptText, echo: p.echo),
+                ],
+              );
+            },
       onVerifyHostKey: (type, fingerprintUtf8) async {
         final fingerprint = utf8.decode(fingerprintUtf8);
         if (knownHosts != null) {
@@ -127,8 +197,11 @@ class SshConnection {
         }
         return null;
       },
-      identities: _loadIdentities(creds),
-      keepAliveInterval: Duration(seconds: profile.keepAliveSeconds),
+      identities: identities,
+      agentHandler: agentHandler,
+      keepAliveInterval: profile.keepAliveSeconds <= 0
+          ? null
+          : Duration(seconds: profile.keepAliveSeconds),
       handshakeTimeout: timeout,
       authTimeout: timeout,
       onX11Forward: profile.x11Forwarding ? _handleX11Channel : null,
@@ -218,6 +291,8 @@ class SshConnection {
     }
     _x11Pipes.clear();
     client?.close();
+    await agent?.close();
+    agent = null;
     await _x11ChannelCtrl.close();
   }
 }

@@ -42,6 +42,32 @@ Future<String?> showPromptDialog(
   );
 }
 
+Future<bool> showYesNoDialog(
+  BuildContext context, {
+  required String title,
+  required String message,
+  String confirmText = '保存',
+}) async {
+  final result = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(title, style: const TextStyle(fontSize: 16)),
+      content: Text(message),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(false),
+          child: const Text('不保存'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(ctx).pop(true),
+          child: Text(confirmText),
+        ),
+      ],
+    ),
+  );
+  return result ?? false;
+}
+
 Future<bool> showConfirmDialog(
   BuildContext context, {
   required String title,
@@ -168,6 +194,66 @@ Future<Map<String, String>?> showFormDialog(
           onPressed: () =>
               Navigator.of(ctx).pop({for (final e in controllers.entries) e.key: e.value.text}),
           child: const Text('确定'),
+        ),
+      ],
+    ),
+  );
+}
+
+Future<List<String>?> showKeyboardInteractiveDialog(
+  BuildContext context, {
+  required String name,
+  required String instruction,
+  required List<({String prompt, bool echo})> prompts,
+}) {
+  final controllers = [
+    for (final _ in prompts) TextEditingController(),
+  ];
+  return showDialog<List<String>>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => AlertDialog(
+      title: Text(name.isEmpty ? '服务器询问' : name,
+          style: const TextStyle(fontSize: 16)),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (instruction.isNotEmpty) ...[
+              Text(instruction, style: const TextStyle(fontSize: 13)),
+              const SizedBox(height: 8),
+            ],
+            for (var i = 0; i < prompts.length; i++)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: TextField(
+                  controller: controllers[i],
+                  obscureText: !prompts[i].echo,
+                  autofocus: i == 0,
+                  decoration: InputDecoration(
+                    labelText: prompts[i].prompt,
+                    isDense: true,
+                  ),
+                  onSubmitted: prompts.length == 1
+                      ? (_) => Navigator.of(ctx)
+                          .pop([for (final c in controllers) c.text])
+                      : null,
+                ),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () =>
+              Navigator.of(ctx).pop([for (final c in controllers) c.text]),
+          child: const Text('继续'),
         ),
       ],
     ),

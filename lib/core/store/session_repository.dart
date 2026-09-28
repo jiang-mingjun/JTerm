@@ -4,6 +4,7 @@ library;
 
 import '../models/macro.dart';
 import '../models/session_profile.dart';
+import '../models/snippet.dart';
 import 'json_store.dart';
 
 class SessionRepository {
@@ -11,8 +12,12 @@ class SessionRepository {
 
   final JsonStore store;
 
+  /// Fired after every successful write so the UI can rebuild.
+  void Function()? onChanged;
+
   List<SessionProfile> sessions = [];
   List<Macro> macros = [];
+  List<Snippet> snippets = [];
 
   /// Group name -> children groups (derived from the '/'-separated group path).
   Set<String> get groups =>
@@ -27,13 +32,51 @@ class SessionRepository {
     macros = (data['macros'] as List<dynamic>? ?? [])
         .map((e) => Macro.fromJson(e as Map<String, dynamic>))
         .toList();
+    snippets = (data['snippets'] as List<dynamic>? ?? [])
+        .map((e) => Snippet.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
-  Future<void> _persist() => store.write({
+  Map<String, dynamic> exportBundle() => {
         'version': 1,
         'sessions': sessions.map((s) => s.toJson()).toList(),
         'macros': macros.map((m) => m.toJson()).toList(),
-      });
+        'snippets': snippets.map((s) => s.toJson()).toList(),
+      };
+
+  Future<int> importBundle(Map<String, dynamic> data) async {
+    var count = 0;
+    final stamp = DateTime.now().millisecondsSinceEpoch;
+    for (final raw in data['sessions'] as List<dynamic>? ?? []) {
+      final profile = SessionProfile.fromJson(raw as Map<String, dynamic>);
+      if (byId(profile.id) != null) {
+        profile.id = '${profile.id}-$stamp-$count';
+        profile.name = '${profile.name} (导入)';
+      }
+      sessions.add(profile);
+      count++;
+    }
+    for (final raw in data['macros'] as List<dynamic>? ?? []) {
+      final macro = Macro.fromJson(raw as Map<String, dynamic>);
+      if (macros.any((m) => m.id == macro.id)) {
+        continue;
+      }
+      macros.add(macro);
+      count++;
+    }
+    await _persist();
+    return count;
+  }
+
+  Future<void> _persist() async {
+    await store.write({
+      'version': 1,
+      'sessions': sessions.map((s) => s.toJson()).toList(),
+      'macros': macros.map((m) => m.toJson()).toList(),
+      'snippets': snippets.map((s) => s.toJson()).toList(),
+    });
+    onChanged?.call();
+  }
 
   Future<void> upsert(SessionProfile p) async {
     final i = sessions.indexWhere((s) => s.id == p.id);
@@ -82,6 +125,21 @@ class SessionRepository {
 
   Future<void> deleteMacro(String id) async {
     macros.removeWhere((m) => m.id == id);
+    await _persist();
+  }
+
+  Future<void> saveSnippet(Snippet s) async {
+    final i = snippets.indexWhere((x) => x.id == s.id);
+    if (i >= 0) {
+      snippets[i] = s;
+    } else {
+      snippets.add(s);
+    }
+    await _persist();
+  }
+
+  Future<void> deleteSnippet(String id) async {
+    snippets.removeWhere((s) => s.id == id);
     await _persist();
   }
 }

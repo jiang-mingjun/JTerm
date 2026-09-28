@@ -3,7 +3,10 @@
 library;
 
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:dartssh2/dartssh2.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -39,6 +42,7 @@ class AppState extends ChangeNotifier {
       final base = await getApplicationSupportDirectory();
       dataDir = base.path;
       repo = SessionRepository(JsonStore('$dataDir/sessions.json'));
+      repo.onChanged = notifyListeners;
       vault = await CredentialVault.open('$dataDir/vault.json');
       knownHosts = KnownHostsStore(JsonStore('$dataDir/known_hosts.json'));
       settings = await SettingsState.load();
@@ -54,8 +58,14 @@ class AppState extends ChangeNotifier {
         hooks: SshConnectHooks(
           verifyHostKey: _askHostKey,
           missingPassword: _askSecret,
+          keyboardInteractive: _askKeyboardInteractive,
         ),
         resolveCredentials: resolveCredentials,
+        logDirectory: '$dataDir/logs',
+        downloadDirectory: settings.downloadDir.isEmpty
+            ? '$dataDir/downloads'
+            : settings.downloadDir,
+        pickUpload: _pickUpload,
       );
       initialized = true;
     } catch (e) {
@@ -93,6 +103,27 @@ class AppState extends ChangeNotifier {
     );
   }
 
+  Future<List<String>?> _askKeyboardInteractive(
+    String name,
+    String instruction,
+    List<({String prompt, bool echo})> prompts,
+  ) async {
+    final ctx = _ctx;
+    if (ctx == null) return null;
+    return showKeyboardInteractiveDialog(
+      ctx,
+      name: name,
+      instruction: instruction,
+      prompts: prompts,
+    );
+  }
+
+  Future<bool> _askYesNo(String title, String message) async {
+    final ctx = _ctx;
+    if (ctx == null) return false;
+    return showYesNoDialog(ctx, title: title, message: message);
+  }
+
   // ------------------------------------------------------------------
   // Credential resolution for a session profile
   // ------------------------------------------------------------------
@@ -124,6 +155,23 @@ class AppState extends ChangeNotifier {
       }
     }
 
+    if (profile.authMethod == AuthMethod.agent) {
+      if (username.isEmpty) {
+        username = await _askSecret('Username for ${profile.host}',
+                obscure: false, initial: '') ??
+            '';
+        if (username.isEmpty) return null;
+      }
+      return SshCredentials(username: username);
+    }
+
+    if (keyPem != null &&
+        (keyPass == null || keyPass.isEmpty) &&
+        _pemLooksEncrypted(keyPem)) {
+      keyPass = await _askSecret('私钥口令 ${profile.privateKeyPath ?? ''}',
+          obscure: true);
+    }
+
     if (username.isEmpty) {
       username = await _askSecret('Username for ${profile.host}',
               obscure: false, initial: '') ??
@@ -131,12 +179,36 @@ class AppState extends ChangeNotifier {
       if (username.isEmpty) return null;
     }
 
+    var prompted = false;
     if (password == null && keyPem == null) {
       password = await _askSecret(
         'Password for $username@${profile.host}',
         obscure: true,
       );
       if (password == null || password.isEmpty) return null;
+      prompted = true;
+    }
+
+    if (prompted && vault.state == VaultState.unlocked) {
+      final save = await _askYesNo(
+        '保存到保险库',
+        '记住 $username@${profile.host} 的密码？',
+      );
+      if (save) {
+        final entry = VaultEntry(
+          id: 'c-${DateTime.now().millisecondsSinceEpoch}',
+          name: profile.name.isEmpty
+              ? '$username@${profile.host}'
+              : profile.name,
+          username: username,
+          password: password,
+        );
+        await vault.addOrUpdate(entry);
+        profile
+          ..credentialId = entry.id
+          ..username = username;
+        await repo.upsert(profile);
+      }
     }
 
     return SshCredentials(
@@ -150,6 +222,22 @@ class AppState extends ChangeNotifier {
   // ------------------------------------------------------------------
   // Vault management
   // ------------------------------------------------------------------
+  Future<UploadPick?> _pickUpload() async {
+    final files = await openFiles();
+    if (files.isEmpty) return null;
+    final file = files.first;
+    final bytes = await File(file.path).readAsBytes();
+    return UploadPick(name: file.name, bytes: Uint8List.fromList(bytes));
+  }
+
+  bool _pemLooksEncrypted(String pem) {
+    try {
+      return SSHKeyPair.isEncryptedPem(pem);
+    } catch (_) {
+      return pem.contains('ENCRYPTED');
+    }
+  }
+
   Future<bool> unlockVault(String masterPassword) async {
     final ok = await vault.unlock(masterPassword);
     notifyListeners();
@@ -165,6 +253,8 @@ class AppState extends ChangeNotifier {
     vault.lock();
     notifyListeners();
   }
+
+  void refresh() => notifyListeners();
 
   @override
   void dispose() {
