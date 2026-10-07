@@ -93,6 +93,26 @@ class SshConnection {
     final host = profile.host!;
     final port = profile.port;
 
+    // ---- local credential preparation (no network yet) ----
+    // Done before the socket so a bad key fails fast without leaking a
+    // TCP connection, and so agent errors are not confused with network ones.
+    var passwordAttempt = creds.password;
+    var identities = _loadIdentities(creds);
+    if (profile.authMethod == AuthMethod.agent) {
+      final connected = await SshAgentClient.connect();
+      if (connected == null) {
+        throw StateError('无法连接 SSH agent，请确认 SSH_AUTH_SOCK 指向正在运行的 agent');
+      }
+      agent = connected;
+      final fromAgent = await connected.identities();
+      if (fromAgent.isEmpty) {
+        await connected.close();
+        agent = null;
+        throw StateError('SSH agent 中没有可用密钥');
+      }
+      identities = fromAgent;
+    }
+
     // ---- transport socket (jump host, proxy, or direct) ----
     final SSHSocket socket;
     if (jumpConnection != null && jumpConnection.isAlive) {
@@ -131,18 +151,8 @@ class SshConnection {
       socket = await SSHSocket.connect(host, port, timeout: timeout);
     }
 
-    var passwordAttempt = creds.password;
-    List<SSHIdentity>? identities = _loadIdentities(creds);
-    if (profile.authMethod == AuthMethod.agent) {
-      agent = await SshAgentClient.connect();
-      final fromAgent = await agent?.identities() ?? [];
-      if (fromAgent.isEmpty) {
-        throw StateError('没有可用的 SSH agent 密钥，请确认 SSH_AUTH_SOCK');
-      }
-      identities = fromAgent;
-    }
     final agentHandler = profile.agentForwarding
-        ? await buildAgentHandler(identities?.whereType<SSHKeyPair>().toList())
+        ? await buildAgentHandler(identities.whereType<SSHKeyPair>().toList())
         : null;
 
     final client = SSHClient(
@@ -197,31 +207,58 @@ class SshConnection {
         }
         return null;
       },
-      identities: identities,
+      identities: identities.isEmpty ? null : identities,
       agentHandler: agentHandler,
       keepAliveInterval: profile.keepAliveSeconds <= 0
           ? null
           : Duration(seconds: profile.keepAliveSeconds),
-      handshakeTimeout: timeout,
-      authTimeout: timeout,
+      // KEX itself takes seconds; the headroom covers the interactive
+      // host-key confirmation dialog shown on first connect.
+      handshakeTimeout: const Duration(seconds: 45),
+      // The auth phase includes interactive password / OTP prompts, so it
+      // must not reuse the short network timeout.
+      authTimeout: const Duration(minutes: 5),
       onX11Forward: profile.x11Forwarding ? _handleX11Channel : null,
     );
 
-    await client.authenticated;
+    try {
+      await client.authenticated;
+    } on SSHAuthFailError {
+      await client.close();
+      await _closeAgent();
+      throw StateError('认证失败：服务器拒绝了密码、密钥等所有认证方式');
+    } catch (_) {
+      // Handshake/auth error, user cancel or timeout: never leak the socket.
+      await client.close();
+      await _closeAgent();
+      rethrow;
+    }
 
     this.client = client;
     connectedHost = host;
     connectedPort = port;
   }
 
-  static List<SSHKeyPair>? _loadIdentities(SshCredentials creds) {
-    if (!creds.hasKey) return null;
+  /// Parses the private key eagerly so a wrong passphrase or an unsupported
+  /// format fails fast with a clear message, instead of silently degrading
+  /// into a confusing password-auth fallback.
+  static List<SSHIdentity> _loadIdentities(SshCredentials creds) {
+    if (!creds.hasKey) return const [];
+    final List<SSHKeyPair> pairs;
     try {
-      return SSHKeyPair.fromPem(creds.privateKeyPem!, creds.keyPassphrase);
-    } catch (_) {
-      // Wrong passphrase is surfaced by the auth failure path instead.
-      return null;
+      pairs = SSHKeyPair.fromPem(creds.privateKeyPem!, creds.keyPassphrase);
+    } catch (e) {
+      throw StateError('私钥解析失败（口令错误或格式不支持）：$e');
     }
+    if (pairs.isEmpty) {
+      throw StateError('私钥文件中不包含可用密钥');
+    }
+    return pairs;
+  }
+
+  Future<void> _closeAgent() async {
+    await agent?.close();
+    agent = null;
   }
 
   // ------------------------------------------------------------------
@@ -291,8 +328,8 @@ class SshConnection {
     }
     _x11Pipes.clear();
     client?.close();
-    await agent?.close();
-    agent = null;
+    client = null;
+    await _closeAgent();
     await _x11ChannelCtrl.close();
   }
 }

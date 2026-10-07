@@ -87,7 +87,10 @@ class SshTerminalSession extends TerminalSessionBase {
         x11: profile.x11Forwarding
             ? SSHX11Config(authenticationCookie: SshConnection.randomX11Cookie())
             : null,
-        environment: const {'TERM': 'xterm-256color'},
+        // NOTE: never send `environment`. Servers reject env requests they
+        // don't accept (OpenSSH: AcceptEnv, and TERM is always rejected) and
+        // dartssh2 turns that refusal into a fatal SSHChannelRequestError.
+        // TERM is conveyed by the PTY request above instead.
       );
       _shell = shell;
 
@@ -137,7 +140,10 @@ class SshTerminalSession extends TerminalSessionBase {
     } catch (e) {
       emitStatus(SessionStatus.failed, e.toString());
       await _teardown();
-      if (!dropArmed) _maybeReconnect();
+      // Only auto-reconnect when a previously working session broke; a failed
+      // first connect (wrong password, unreachable host, ...) must not loop
+      // back into credential prompts.
+      if (!dropArmed && _hadSession) _maybeReconnect();
     }
   }
 
